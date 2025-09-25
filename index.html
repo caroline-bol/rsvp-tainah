@@ -131,74 +131,102 @@
   </footer>
 
   <script>
-  const form = document.getElementById('rsvpForm');
-  const attendanceSelect = document.getElementById('attendance');
-  const guestsField = document.getElementById('guestsField');
-  const statusDiv = document.getElementById('status');
-  const endpoint = document.getElementById('endpoint').value;
+  // Script atualizado: espera o DOM, trata ausência de guestsField e respostas não-JSON
+  document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('rsvpForm');
+    const attendanceSelect = document.getElementById('attendance');
+    // caso você venha a adicionar um campo de acompanhantes no futuro, nomeie-o como 'guestsField' ou 'guestsWrapper'
+    let guestsField = document.getElementById('guestsField') || document.getElementById('guestsWrapper');
+    const statusDiv = document.getElementById('status');
+    const endpointInput = document.getElementById('endpoint');
+    const endpoint = endpointInput ? endpointInput.value.trim() : null;
 
-  attendanceSelect.addEventListener('change', () => {
-    if (attendanceSelect.value === 'Sim') guestsField.classList.remove('hidden');
-    else guestsField.classList.add('hidden');
-  });
+    if (!form) {
+      console.warn('Form não encontrado (id="rsvpForm").');
+      return;
+    }
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    statusDiv.style.color = ''; // volta ao padrão
-    statusDiv.textContent = "Enviando...";
-
-    const fd = new FormData(form);
-
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        body: fd,
-        headers: { 'Accept': 'application/json' }
+    // Se existir o select de attendance, adiciona listener; caso não exista, apenas não faz nada
+    if (attendanceSelect) {
+      attendanceSelect.addEventListener('change', () => {
+        if (!guestsField) return; // se não há campo de acompanhantes, não faz nada
+        if (attendanceSelect.value === 'Sim') guestsField.classList.remove('hidden');
+        else guestsField.classList.add('hidden');
       });
+    }
 
-      // para debug: verifique no console o status e se houve redirect
-      console.log('Formspree response', { status: res.status, ok: res.ok, redirected: res.redirected });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (statusDiv) {
+        statusDiv.style.color = '';
+        statusDiv.textContent = "Enviando...";
+      }
 
-      // considerar sucesso em vários casos:
-      if (res.ok || res.redirected || res.status === 200 || res.status === 201) {
-        statusDiv.style.color = "green";
-        statusDiv.textContent = "🎉 Obrigado! Sua presença foi confirmada.";
-        form.reset();
-        guestsField.classList.add('hidden');
+      if (!endpoint) {
+        if (statusDiv) {
+          statusDiv.style.color = "crimson";
+          statusDiv.textContent = "Erro: endpoint do formulário não configurado.";
+        }
+        console.warn('Endpoint do Formspree não encontrado (input id="endpoint").');
         return;
       }
 
-      // Se chegou aqui, o status não foi 'ok' — vamos tentar extrair mensagem do corpo
-      let text = '';
+      const fd = new FormData(form);
+
       try {
-        // tenta JSON primeiro
-        const json = await res.json();
-        if (json && json.errors) {
-          text = json.errors.map(x => x.message || JSON.stringify(x)).join(', ');
-        } else {
-          text = JSON.stringify(json);
+        const res = await fetch(endpoint, {
+          method: "POST",
+          body: fd,
+          headers: { 'Accept': 'application/json' }
+        });
+
+        console.log('Formspree response', { status: res.status, ok: res.ok, redirected: res.redirected });
+
+        // considerar sucesso em vários casos (algumas respostas podem não ser JSON)
+        if (res.ok || res.redirected || res.status === 200 || res.status === 201) {
+          if (statusDiv) {
+            statusDiv.style.color = "green";
+            statusDiv.textContent = "🎉 Obrigado! Sua presença foi confirmada.";
+          }
+          form.reset();
+          if (guestsField) guestsField.classList.add('hidden');
+          return;
         }
-      } catch (jsonErr) {
-        // não era JSON — pega texto simples
+
+        // status não OK -> tentar extrair mensagem do corpo (JSON ou texto)
+        let text = '';
         try {
-          text = await res.text();
-        } catch (tErr) {
-          text = 'Resposta inesperada do servidor.';
+          const json = await res.json();
+          if (json && json.errors) {
+            text = json.errors.map(x => x.message || JSON.stringify(x)).join(', ');
+          } else {
+            text = JSON.stringify(json);
+          }
+        } catch (jsonErr) {
+          // não era JSON — pega texto simples
+          try {
+            text = await res.text();
+          } catch (tErr) {
+            text = 'Resposta inesperada do servidor.';
+          }
+        }
+
+        console.warn('Formspree não retornou sucesso, status:', res.status, 'body:', text);
+        if (statusDiv) {
+          statusDiv.style.color = "crimson";
+          statusDiv.textContent = "Ocorreu um erro ao enviar: " + (text || 'Tente novamente.');
+        }
+
+      } catch (err) {
+        console.error('Erro de conexão ao enviar o form:', err);
+        if (statusDiv) {
+          statusDiv.style.color = "crimson";
+          statusDiv.textContent = "Erro de conexão. Tente novamente.";
         }
       }
-
-      console.warn('Formspree não retornou success, status:', res.status, 'body:', text);
-      statusDiv.style.color = "crimson";
-      statusDiv.textContent = "Ocorreu um erro ao enviar: " + (text || 'Tente novamente.');
-
-    } catch (err) {
-      console.error('Erro de conexão ao enviar o form:', err);
-      statusDiv.style.color = "crimson";
-      statusDiv.textContent = "Erro de conexão. Tente novamente.";
-    }
+    });
   });
-</script>
+  </script>
 
 </body>
 </html>
-
