@@ -131,49 +131,74 @@
   </footer>
 
   <script>
-    const form = document.getElementById('rsvpForm');
-    const attendanceSelect = document.getElementById('attendance');
-    const guestsField = document.getElementById('guestsField');
-    const statusDiv = document.getElementById('status');
-    const endpoint = document.getElementById('endpoint').value;
+  const form = document.getElementById('rsvpForm');
+  const attendanceSelect = document.getElementById('attendance');
+  const guestsField = document.getElementById('guestsField');
+  const statusDiv = document.getElementById('status');
+  const endpoint = document.getElementById('endpoint').value;
 
-    attendanceSelect.addEventListener('change', () => {
-      if (attendanceSelect.value === 'Sim') {
-        guestsField.classList.remove('hidden');
-      } else {
+  attendanceSelect.addEventListener('change', () => {
+    if (attendanceSelect.value === 'Sim') guestsField.classList.remove('hidden');
+    else guestsField.classList.add('hidden');
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    statusDiv.style.color = ''; // volta ao padrão
+    statusDiv.textContent = "Enviando...";
+
+    const fd = new FormData(form);
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        body: fd,
+        headers: { 'Accept': 'application/json' }
+      });
+
+      // para debug: verifique no console o status e se houve redirect
+      console.log('Formspree response', { status: res.status, ok: res.ok, redirected: res.redirected });
+
+      // considerar sucesso em vários casos:
+      if (res.ok || res.redirected || res.status === 200 || res.status === 201) {
+        statusDiv.style.color = "green";
+        statusDiv.textContent = "🎉 Obrigado! Sua presença foi confirmada.";
+        form.reset();
         guestsField.classList.add('hidden');
+        return;
       }
-    });
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      statusDiv.textContent = "Enviando...";
-
-      const fd = new FormData(form);
-
+      // Se chegou aqui, o status não foi 'ok' — vamos tentar extrair mensagem do corpo
+      let text = '';
       try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          body: fd,
-          headers: { 'Accept': 'application/json' }
-        });
-
-        if (res.ok) {
-          statusDiv.textContent = "🎉 Obrigado! Sua presença foi confirmada.";
-          form.reset();
-          guestsField.classList.add('hidden');
+        // tenta JSON primeiro
+        const json = await res.json();
+        if (json && json.errors) {
+          text = json.errors.map(x => x.message || JSON.stringify(x)).join(', ');
         } else {
-          const data = await res.json();
-          if (data.errors) {
-            statusDiv.textContent = "Erro: " + data.errors.map(e => e.message).join(", ");
-          } else {
-            statusDiv.textContent = "Ocorreu um erro. Tente novamente.";
-          }
+          text = JSON.stringify(json);
         }
-      } catch (error) {
-        statusDiv.textContent = "Erro de conexão. Tente novamente.";
+      } catch (jsonErr) {
+        // não era JSON — pega texto simples
+        try {
+          text = await res.text();
+        } catch (tErr) {
+          text = 'Resposta inesperada do servidor.';
+        }
       }
-    });
-  </script>
+
+      console.warn('Formspree não retornou success, status:', res.status, 'body:', text);
+      statusDiv.style.color = "crimson";
+      statusDiv.textContent = "Ocorreu um erro ao enviar: " + (text || 'Tente novamente.');
+
+    } catch (err) {
+      console.error('Erro de conexão ao enviar o form:', err);
+      statusDiv.style.color = "crimson";
+      statusDiv.textContent = "Erro de conexão. Tente novamente.";
+    }
+  });
+</script>
+
 </body>
 </html>
+
